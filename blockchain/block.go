@@ -9,23 +9,27 @@ import (
 
 // Block of the chain
 type Block struct {
-	Data     []byte
+	Transactions []*CoinTransaction
 	PrevHash []byte
 	Hash     []byte
 	Nonce    int
 }
 
-// DeriveHash calculates the hash of the block
-func (b *Block) DeriveHash() {
-	info := bytes.Join([][]byte{b.Data, b.PrevHash}, []byte{})
-	hash := sha256.Sum256(info)
-	b.Hash = hash[:]
+// HashTransaction hashes combined transactions
+func (b *Block) HashTransaction() []byte {
+	var txHashes [][]byte
+	var txHash [32]byte
+	for _, tx := range b.Transactions {
+		txHashes = append(txHashes, tx.ID)
+	}
+	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
+	return txHash[:]
 }
 
 // CreateBlock creates new Block on the blockchain
-func CreateBlock(data []byte, prevHash []byte) *Block {
+func CreateBlock(txns []*CoinTransaction, prevHash []byte) *Block {
 	block := &Block{
-		Data:     data,
+		Transactions: txns,
 		PrevHash: prevHash,
 		Hash:     []byte{},
 	}

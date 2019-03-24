@@ -1,6 +1,9 @@
 package blockchain
 
 import (
+	"encoding/hex"
+	"runtime"
+	"os"
 	"fmt"
 	"log"
 	"github.com/dgraph-io/badger"
@@ -8,7 +11,9 @@ import (
 
 const (
 	dbPath = "./tmp/blocks"
+	dbFile = "./tmp/blocks/MANIFEST"
 	lastHashKey = "lh"
+	genesisData = "First transaction from Genesis"
 )
 
 //BlockChain storage
@@ -24,8 +29,16 @@ type Iterator struct {
 	Database *badger.DB
 }
 
+// DBexists checks if the database has been initialized
+func DBexists() bool {
+	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
 // AddBlock to the blockchain
-func (chain *BlockChain) AddBlock(data []byte) {
+func (chain *BlockChain) AddBlock(data []*CoinTransaction) {
 	var lastHash []byte
 	err := chain.Database.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(lastHashKey))
@@ -54,54 +67,161 @@ func (chain *BlockChain) AddBlock(data []byte) {
 }
 
 // Genesis block of the blockchain
-func Genesis() *Block {
-	return CreateBlock([]byte("Genesis"), []byte{})
+func Genesis(txn *CoinTransaction) *Block {
+	return CreateBlock([]*CoinTransaction{txn}, []byte{})
 }
+// Continue from an existing database
+func Continue(address string) *BlockChain {
+	if DBexists() == false {
+		fmt.Println("No existing blockchain found, create one!")
+		runtime.Goexit()
+	}
 
-// InitBlockChain with persistance
-func InitBlockChain() *BlockChain {
 	var lastHash []byte
+
 	opts := badger.DefaultOptions
 	opts.Dir = dbPath
 	opts.ValueDir = dbPath
+
 	db, err := badger.Open(opts)
-	// TODO: better error handling
-	if err != nil {
-		log.Panic(err)
+	if (err != nil) {
+		log.Panicf("error opening the database: %v", err)
 	}
 
 	err = db.Update(func(txn *badger.Txn) error {
-		if _, err := txn.Get([]byte(lastHashKey)); err == badger.ErrKeyNotFound {
-			fmt.Println("No existing blockchain found")
-			genesis := Genesis()
-			fmt.Println("Genesis created")
-			err = txn.Set(genesis.Hash, genesis.Serialize())
-			if (err != nil) {
-				log.Fatalf("error setting the genesis hash: %v", err)
-			}
-			err = txn.Set([]byte(lastHashKey), genesis.Hash)
-			if (err != nil) {
-				log.Fatalf("error setting the last hash key: %v", err)
-			}
-			lastHash = genesis.Hash
-			return err
-		}
-		item, err := txn.Get([]byte(lastHashKey))
+		item, err := txn.Get([]byte("lh"))
 		if (err != nil) {
-			log.Fatalf("error setting the last hash: %v", err)
+			log.Panicf("error getting last hash: %v", err)
 		}
 		lastHash, err = item.Value()
+
 		return err
 	})
 	if (err != nil) {
-		log.Fatalf("error getting the last hash: %v", err)
-	}
-	blockchain := &BlockChain{
-		LastHash: lastHash,
-		Database: db,
+		log.Panicf("error setting last hash: %v", err)
 	}
 
-	return blockchain
+	chain := BlockChain{lastHash, db}
+
+	return &chain
+}
+
+
+// InitBlockChain with persistance
+func InitBlockChain(address string) *BlockChain {
+	var lastHash []byte
+
+	if DBexists() {
+		fmt.Println("Blockchain already exists")
+		runtime.Goexit()
+	}
+
+	opts := badger.DefaultOptions
+	opts.Dir = dbPath
+	opts.ValueDir = dbPath
+
+	db, err := badger.Open(opts)
+	if (err != nil) {
+		log.Panicf("error opening the database: %v", err)
+	}
+
+	err = db.Update(func(txn *badger.Txn) error {
+		cbtx := InitCoinTransaction(address, genesisData)
+		genesis := Genesis(cbtx)
+		fmt.Println("Genesis created")
+		err = txn.Set(genesis.Hash, genesis.Serialize())
+		if (err != nil) {
+			log.Panicf("error setting the genesis hash: %v", err)
+		}
+		err = txn.Set([]byte("lh"), genesis.Hash)
+
+		lastHash = genesis.Hash
+
+		return err
+
+	})
+
+	if (err != nil) {
+		log.Panicf("error adding the genesis block: %v", err)
+	}
+
+	blockchain := BlockChain{lastHash, db}
+	return &blockchain
+}
+
+// FindUnspentTransactions finds all unspend transactions for an address
+func (chain *BlockChain) FindUnspentTransactions(address string) []CoinTransaction {
+	var unspendTxs []CoinTransaction
+	spendTXOs := make(map[string][]int)
+	iter := chain.Iterator()
+
+	for {
+		block := iter.Next()
+		for _, tx := range block.Transactions {
+			txID := hex.EncodeToString(tx.ID)
+			Outputs:
+			for outInx, out := range tx.Outputs {
+				if spendTXOs[txID] != nil {
+					for _, spendOut := range spendTXOs[txID] {
+						if spendOut == outInx {
+							continue Outputs
+						}
+					}
+				}
+				if out.CanBeUnlocked(address) {
+					unspendTxs = append(unspendTxs, *tx)
+				}
+			}
+			if tx.IsCoinTransaction() == false {
+				for _, in := range tx.Inputs {
+					inTxID := hex.EncodeToString(in.ID)
+					spendTXOs[inTxID] = append(spendTXOs[inTxID], in.Out)
+				}				
+			}
+		}
+
+		if len(block.PrevHash) == 0 {
+			break
+		}
+	}
+	return unspendTxs
+}
+
+// FindUTXO finds all unspend transaction outputs
+func (chain *BlockChain) FindUTXO(address string) []CoinTxOutput {
+	var UTXOs []CoinTxOutput
+	unspendTransactions := chain.FindUnspentTransactions(address)
+	for _, tx := range unspendTransactions {
+		for _, out := range tx.Outputs {
+			if out.CanBeUnlocked(address) {
+				UTXOs = append(UTXOs, out)
+			}
+		}
+	}
+	return UTXOs
+}
+
+// FindSpendableTransactions ensures that the address has sufficient funds
+func (chain *BlockChain) FindSpendableTransactions(address string, amount int) (int, map[string][]int) {
+	unspendOuts := make(map[string][]int)
+	unspendTx := chain.FindUnspentTransactions(address)
+	accumulated := 0
+
+	Work:
+	for _, tx := range unspendTx {
+		txID := hex.EncodeToString(tx.ID)
+		for outIdx, out := range tx.Outputs {
+			if out.CanBeUnlocked(address) && accumulated < amount {
+				accumulated += out.Value
+				unspendOuts[txID] = append(unspendOuts[txID], outIdx)
+				if accumulated >= amount {
+					break Work
+				}
+			}
+		}
+	}
+
+	return accumulated, unspendOuts
 }
 
 // Iterator returns a blockchain iterator
