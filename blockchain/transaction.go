@@ -16,18 +16,6 @@ type CoinTransaction struct {
 	Outputs []CoinTxOutput
 }
 
-// CoinTxInput is the transaction intput
-type CoinTxInput struct {
-	ID  []byte
-	Out int
-	Sig string
-}
-
-// CoinTxOutput is the transaction output
-type CoinTxOutput struct {
-	Value  int
-	PubKey string
-}
 
 // InitCoinTransaction initialize a coin transaction
 func InitCoinTransaction(to, data string) *CoinTransaction {
@@ -62,16 +50,6 @@ func (txn *CoinTransaction) SetID() {
 // IsCoinTransaction validates initail state of coin transaction
 func (txn *CoinTransaction) IsCoinTransaction() bool {
 	return len(txn.Inputs) == 1 && len(txn.Inputs[0].ID) == 0 && txn.Inputs[0].Out == -1
-}
-
-// CanUnlock a transaction
-func (in *CoinTxInput) CanUnlock(data string) bool {
-	return in.Sig == data
-}
-
-// CanBeUnlocked checks if a transaction output can be unlocked
-func (out *CoinTxOutput) CanBeUnlocked(data string) bool {
-	return out.PubKey == data
 }
 
 // NewTransaction creates new transaction

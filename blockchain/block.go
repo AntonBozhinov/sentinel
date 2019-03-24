@@ -40,22 +40,22 @@ func CreateBlock(txns []*CoinTransaction, prevHash []byte) *Block {
 	return block
 }
 
+// Serialize a block
 func (b *Block) Serialize() []byte {
 	var res bytes.Buffer
 	encoder := gob.NewEncoder(&res)
 	err := encoder.Encode(b)
-	// TODO: better error handling
 	if err != nil {
 		log.Panic(err)
 	}
 	return res.Bytes()
 }
 
+// Deserialize a block
 func Deserialize(data []byte) *Block {
 	var block Block
 	decoder := gob.NewDecoder(bytes.NewReader(data))
 	err := decoder.Decode(&block)
-	// TODO: better error handling
 	if err != nil {
 		log.Panic(err)
 	}

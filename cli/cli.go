@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/AntonBozhinov/sentinel/blockchain"
+	"github.com/AntonBozhinov/sentinel/wallet"
 	"log"
 	"os"
 	"runtime"
@@ -69,19 +70,46 @@ func (cli *CommandLine) send(from, to string, amount int) {
 	fmt.Println("Success!")
 }
 
+func (cli *CommandLine) createWallet() {
+	wallets, _ := wallet.CreateWallets()
+	address := wallets.AddWallet()
+	wallets.SaveFile()
+	fmt.Printf("New wallet address is: %s\n", address)
+}
+
+func (cli *CommandLine) listAddresses() {
+	wallets, _ := wallet.CreateWallets()
+	addresses := wallets.GetAllAddresses()
+	for _, address := range addresses {
+		fmt.Println(address)
+	}
+}
+
 func (cli *CommandLine) run() {
 	cli.validateArgs()
 	getBalanceCmd := flag.NewFlagSet("balance", flag.ExitOnError)
 	getBalanceAddress := getBalanceCmd.String("address", "", "address of the account")
+
 	createCmd := flag.NewFlagSet("create", flag.ExitOnError)
-	printCmd := flag.NewFlagSet("print", flag.ExitOnError)
 	createBlockChainAddress := createCmd.String("blockchain", "", "address of the blockchain")
+	createWallet := createCmd.Bool("wallet", false, "create new wallet")
+	
+	printCmd := flag.NewFlagSet("print", flag.ExitOnError)
+
+	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
+	listWallets := listCmd.Bool("wallets", false, "list wallets")
+
 	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
 	sendTo := sendCmd.String("to", "", "Destination wallet address")
 	sendFrom := sendCmd.String("from", "", "Source wallet address")
 	sendAmount := sendCmd.Int("amount", 0, "Amount of coins")
 
 	switch os.Args[1] {
+	case "list":
+		err := listCmd.Parse(os.Args[2:])
+		if (err != nil) {
+			log.Panic(err)
+		}
 	case "balance":
 		err := getBalanceCmd.Parse(os.Args[2:])
 		if (err != nil) {
@@ -103,6 +131,14 @@ func (cli *CommandLine) run() {
 			log.Panic(err)
 		}
 	}
+	if listCmd.Parsed() {
+		if *listWallets {
+			cli.listAddresses()
+		} else {
+			listCmd.Usage()
+			runtime.Goexit()
+		}
+	}
 
 	if getBalanceCmd.Parsed() {
 		if *getBalanceAddress == "" {
@@ -113,11 +149,16 @@ func (cli *CommandLine) run() {
 	}
 
 	if createCmd.Parsed() {
-		if *createBlockChainAddress == "" {
+		if *createBlockChainAddress == "" && !*createWallet {
 			createCmd.Usage()
 			runtime.Goexit()
 		}
-		cli.createBlockChain(*createBlockChainAddress)
+		if len(*createBlockChainAddress) > 0{
+			cli.createBlockChain(*createBlockChainAddress)
+		}
+		if *createWallet {
+			cli.createWallet()
+		}
 	}
 	if printCmd.Parsed() {
 		cli.printChain()
