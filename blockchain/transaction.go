@@ -47,7 +47,7 @@ func (txn *CoinTransaction) SetID() {
 	txn.ID = hash[:]
 }
 
-// IsCoinTransaction validates initail state of coin transaction
+// IsCoinTransaction validates initial state of coin transaction
 func (txn *CoinTransaction) IsCoinTransaction() bool {
 	return len(txn.Inputs) == 1 && len(txn.Inputs[0].ID) == 0 && txn.Inputs[0].Out == -1
 }

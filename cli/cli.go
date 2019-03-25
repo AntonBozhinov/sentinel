@@ -56,7 +56,7 @@ func (cli *CommandLine) getBalance(address string) {
 	balance := 0
 	UTXOs := chain.FindUTXO(address)
 	for _, out := range UTXOs {
-		balance = out.Value
+		balance += out.Value
 	}
 	fmt.Printf("Balance of %s: %d\n", address, balance)
 }

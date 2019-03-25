@@ -2,11 +2,11 @@ package blockchain
 
 import (
 	"encoding/hex"
-	"runtime"
-	"os"
 	"fmt"
-	"log"
 	"github.com/dgraph-io/badger"
+	"log"
+	"os"
+	"runtime"
 )
 
 const (
@@ -42,26 +42,26 @@ func (chain *BlockChain) AddBlock(data []*CoinTransaction) {
 	var lastHash []byte
 	err := chain.Database.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(lastHashKey))
-		if (err != nil) {
+		if err != nil {
 			log.Fatalf("error setting the genesis hash: %v", err)
 		}
 		lastHash, err = item.Value()
 		return err
 	})
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("error adding a new block: %v", err)
 	}
 	newBlock := CreateBlock(data, lastHash)
 	err = chain.Database.Update(func(txn*badger.Txn) error {
 		err := txn.Set(newBlock.Hash, newBlock.Serialize())
-		if (err != nil) {
+		if err != nil {
 			log.Fatalf("error saving the new block: %v", err)
 		}
 		err = txn.Set([]byte(lastHashKey), newBlock.Hash)
 		chain.LastHash = lastHash
-		return err;
+		return err
 	})
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("could not add new block: %v", err)
 	}
 }
@@ -84,20 +84,20 @@ func Continue(address string) *BlockChain {
 	opts.ValueDir = dbPath
 
 	db, err := badger.Open(opts)
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error opening the database: %v", err)
 	}
 
 	err = db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte("lh"))
-		if (err != nil) {
+		if err != nil {
 			log.Panicf("error getting last hash: %v", err)
 		}
 		lastHash, err = item.Value()
 
 		return err
 	})
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error setting last hash: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func Continue(address string) *BlockChain {
 }
 
 
-// InitBlockChain with persistance
+// InitBlockChain with persistence
 func InitBlockChain(address string) *BlockChain {
 	var lastHash []byte
 
@@ -121,7 +121,7 @@ func InitBlockChain(address string) *BlockChain {
 	opts.ValueDir = dbPath
 
 	db, err := badger.Open(opts)
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error opening the database: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func InitBlockChain(address string) *BlockChain {
 		genesis := Genesis(cbtx)
 		fmt.Println("Genesis created")
 		err = txn.Set(genesis.Hash, genesis.Serialize())
-		if (err != nil) {
+		if err != nil {
 			log.Panicf("error setting the genesis hash: %v", err)
 		}
 		err = txn.Set([]byte("lh"), genesis.Hash)
@@ -141,7 +141,7 @@ func InitBlockChain(address string) *BlockChain {
 
 	})
 
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error adding the genesis block: %v", err)
 	}
 
@@ -149,9 +149,9 @@ func InitBlockChain(address string) *BlockChain {
 	return &blockchain
 }
 
-// FindUnspentTransactions finds all unspend transactions for an address
+// FindUnspentTransactions finds all unspent transactions for an address
 func (chain *BlockChain) FindUnspentTransactions(address string) []CoinTransaction {
-	var unspendTxs []CoinTransaction
+	var unspentTxs []CoinTransaction
 	spendTXOs := make(map[string][]int)
 	iter := chain.Iterator()
 
@@ -169,7 +169,7 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []CoinTransacti
 					}
 				}
 				if out.CanBeUnlocked(address) {
-					unspendTxs = append(unspendTxs, *tx)
+					unspentTxs = append(unspentTxs, *tx)
 				}
 			}
 			if tx.IsCoinTransaction() == false {
@@ -184,14 +184,14 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []CoinTransacti
 			break
 		}
 	}
-	return unspendTxs
+	return unspentTxs
 }
 
-// FindUTXO finds all unspend transaction outputs
+// FindUTXO finds all unspent transaction outputs
 func (chain *BlockChain) FindUTXO(address string) []CoinTxOutput {
 	var UTXOs []CoinTxOutput
-	unspendTransactions := chain.FindUnspentTransactions(address)
-	for _, tx := range unspendTransactions {
+	unspentTransactions := chain.FindUnspentTransactions(address)
+	for _, tx := range unspentTransactions {
 		for _, out := range tx.Outputs {
 			if out.CanBeUnlocked(address) {
 				UTXOs = append(UTXOs, out)
@@ -203,17 +203,17 @@ func (chain *BlockChain) FindUTXO(address string) []CoinTxOutput {
 
 // FindSpendableTransactions ensures that the address has sufficient funds
 func (chain *BlockChain) FindSpendableTransactions(address string, amount int) (int, map[string][]int) {
-	unspendOuts := make(map[string][]int)
-	unspendTx := chain.FindUnspentTransactions(address)
+	unspentOuts := make(map[string][]int)
+	unspentTx := chain.FindUnspentTransactions(address)
 	accumulated := 0
 
 	Work:
-	for _, tx := range unspendTx {
+	for _, tx := range unspentTx {
 		txID := hex.EncodeToString(tx.ID)
 		for outIdx, out := range tx.Outputs {
 			if out.CanBeUnlocked(address) && accumulated < amount {
 				accumulated += out.Value
-				unspendOuts[txID] = append(unspendOuts[txID], outIdx)
+				unspentOuts[txID] = append(unspentOuts[txID], outIdx)
 				if accumulated >= amount {
 					break Work
 				}
@@ -221,7 +221,7 @@ func (chain *BlockChain) FindSpendableTransactions(address string, amount int) (
 		}
 	}
 
-	return accumulated, unspendOuts
+	return accumulated, unspentOuts
 }
 
 // Iterator returns a blockchain iterator
@@ -235,14 +235,14 @@ func (iter *Iterator) Next() *Block {
 	var block *Block
 	err := iter.Database.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(iter.CurrentHash)
-		if (err != nil) {
+		if err != nil {
 			log.Fatalf("error with iteration on hash: %x\n%v", iter.CurrentHash, err)
 		}
 		encodedBlock, err := item.Value()
 		block = Deserialize(encodedBlock)
 		return err
 	})
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("error getting data from hash: %x\n%v", iter.CurrentHash, err)
 	}
 	iter.CurrentHash = block.PrevHash
