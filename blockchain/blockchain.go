@@ -1,9 +1,12 @@
 package blockchain
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
 	"github.com/dgraph-io/badger"
+	"github.com/pkg/errors"
 	"log"
 	"os"
 	"runtime"
@@ -16,29 +19,71 @@ const (
 	genesisData = "First transaction from Genesis"
 )
 
-//BlockChain storage
 type BlockChain struct {
 	LastHash []byte
 	Database *badger.DB
 }
 
-// Iterator is a helper structure for
-// blockchain iteration
 type Iterator struct {
 	CurrentHash []byte
 	Database *badger.DB
 }
 
-// DBexists checks if the database has been initialized
-func DBexists() bool {
+func (bc *BlockChain) FindTransaction(ID []byte) (CoinTransaction, error) {
+	iter := bc.Iterator()
+	for {
+		block := iter.Next()
+
+		for _, tx := range block.Transactions {
+			if bytes.Compare(tx.ID, ID) == 0 {
+				return *tx, nil
+			}
+		}
+
+		if len(block.PrevHash) == 0 {
+			break
+		}
+	}
+	return CoinTransaction{}, errors.New("transaction does not exists")
+}
+
+func (bc *BlockChain) SignTransaction(tx *CoinTransaction, privKey ecdsa.PrivateKey) {
+	prevTXs := make(map[string]CoinTransaction)
+
+	for _, in := range tx.Inputs {
+		prevTX, err := bc.FindTransaction(in.ID)
+		if err != nil {
+			log.Panicf("can not find a transaction with ID: %x", in.ID)
+		}
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	tx.Sign(privKey, prevTXs)
+}
+
+func (bc *BlockChain) VerifyTransaction(tx *CoinTransaction) bool {
+	prevTXs := make(map[string]CoinTransaction)
+
+	for _, in := range tx.Inputs {
+		prevTX, err := bc.FindTransaction(in.ID)
+		if err != nil {
+			log.Panicf("can not find a transaction with ID: %x", in.ID)
+		}
+
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	return tx.Verify(prevTXs)
+}
+
+func hasDB() bool {
 	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
 		return false
 	}
 	return true
 }
 
-// AddBlock to the blockchain
-func (chain *BlockChain) AddBlock(data []*CoinTransaction) {
+func (chain *BlockChain) AddBlock(data []*CoinTransaction) *Block {
 	var lastHash []byte
 	err := chain.Database.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(lastHashKey))
@@ -64,15 +109,14 @@ func (chain *BlockChain) AddBlock(data []*CoinTransaction) {
 	if err != nil {
 		log.Fatalf("could not add new block: %v", err)
 	}
+	return newBlock
 }
 
-// Genesis block of the blockchain
 func Genesis(txn *CoinTransaction) *Block {
 	return CreateBlock([]*CoinTransaction{txn}, []byte{})
 }
-// Continue from an existing database
 func Continue(address string) *BlockChain {
-	if DBexists() == false {
+	if hasDB() == false {
 		fmt.Println("No existing blockchain found, create one!")
 		runtime.Goexit()
 	}
@@ -107,11 +151,10 @@ func Continue(address string) *BlockChain {
 }
 
 
-// InitBlockChain with persistence
 func InitBlockChain(address string) *BlockChain {
 	var lastHash []byte
 
-	if DBexists() {
+	if hasDB() {
 		fmt.Println("Blockchain already exists")
 		runtime.Goexit()
 	}
@@ -126,7 +169,7 @@ func InitBlockChain(address string) *BlockChain {
 	}
 
 	err = db.Update(func(txn *badger.Txn) error {
-		cbtx := InitCoinTransaction(address, genesisData)
+		cbtx := FirstCoinTransaction(address, genesisData)
 		genesis := Genesis(cbtx)
 		fmt.Println("Genesis created")
 		err = txn.Set(genesis.Hash, genesis.Serialize())
@@ -149,9 +192,8 @@ func InitBlockChain(address string) *BlockChain {
 	return &blockchain
 }
 
-// FindUnspentTransactions finds all unspent transactions for an address
-func (chain *BlockChain) FindUnspentTransactions(address string) []CoinTransaction {
-	var unspentTxs []CoinTransaction
+func (chain *BlockChain) FindUTXO() map[string]CoinTxOutputs {
+	UTXO := make(map[string]CoinTxOutputs)
 	spendTXOs := make(map[string][]int)
 	iter := chain.Iterator()
 
@@ -168,15 +210,15 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []CoinTransacti
 						}
 					}
 				}
-				if out.CanBeUnlocked(address) {
-					unspentTxs = append(unspentTxs, *tx)
-				}
+				outs := UTXO[txID]
+				outs.Outputs = append(outs.Outputs, out)
+				UTXO[txID] = outs
 			}
 			if tx.IsCoinTransaction() == false {
 				for _, in := range tx.Inputs {
-					inTxID := hex.EncodeToString(in.ID)
-					spendTXOs[inTxID] = append(spendTXOs[inTxID], in.Out)
-				}				
+					intTxID := hex.EncodeToString(in.ID)
+					spendTXOs[intTxID] = append(spendTXOs[intTxID], in.Out)
+				}
 			}
 		}
 
@@ -184,53 +226,15 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []CoinTransacti
 			break
 		}
 	}
-	return unspentTxs
+	return UTXO
 }
 
-// FindUTXO finds all unspent transaction outputs
-func (chain *BlockChain) FindUTXO(address string) []CoinTxOutput {
-	var UTXOs []CoinTxOutput
-	unspentTransactions := chain.FindUnspentTransactions(address)
-	for _, tx := range unspentTransactions {
-		for _, out := range tx.Outputs {
-			if out.CanBeUnlocked(address) {
-				UTXOs = append(UTXOs, out)
-			}
-		}
-	}
-	return UTXOs
-}
 
-// FindSpendableTransactions ensures that the address has sufficient funds
-func (chain *BlockChain) FindSpendableTransactions(address string, amount int) (int, map[string][]int) {
-	unspentOuts := make(map[string][]int)
-	unspentTx := chain.FindUnspentTransactions(address)
-	accumulated := 0
-
-	Work:
-	for _, tx := range unspentTx {
-		txID := hex.EncodeToString(tx.ID)
-		for outIdx, out := range tx.Outputs {
-			if out.CanBeUnlocked(address) && accumulated < amount {
-				accumulated += out.Value
-				unspentOuts[txID] = append(unspentOuts[txID], outIdx)
-				if accumulated >= amount {
-					break Work
-				}
-			}
-		}
-	}
-
-	return accumulated, unspentOuts
-}
-
-// Iterator returns a blockchain iterator
 func (chain *BlockChain) Iterator() *Iterator {
 	iter := &Iterator{chain.LastHash, chain.Database}
 	return iter
 }
 
-// Next gets the next block in iteration
 func (iter *Iterator) Next() *Block {
 	var block *Block
 	err := iter.Database.View(func(txn *badger.Txn) error {

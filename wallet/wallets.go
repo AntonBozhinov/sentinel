@@ -1,13 +1,13 @@
 package wallet
 
 import (
-	"fmt"
-	"os"
-	"io/ioutil"
-	"log"
+	"bytes"
 	"crypto/elliptic"
 	"encoding/gob"
-	"bytes"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
 )
 
 const walletsFile = "./tmp/wallets.data"
@@ -26,8 +26,12 @@ func CreateWallets() (*Wallets, error) {
 }
 
 // GetWallet from an address
-func (ws Wallets) GetWallet(address string) Wallet {
-	return *ws.Wallets[address]
+func (ws *Wallets) GetWallet(address string) Wallet {
+	fmt.Printf("%v\n", ws.Wallets)
+	fmt.Printf("%s\n", address)
+	w := *ws.Wallets[address]
+
+	return w
 }
 
 // GetAllAddresses gets all user wallet addresses
@@ -42,8 +46,8 @@ func (ws *Wallets) GetAllAddresses() []string {
 // AddWallet to add new wallet to wallets
 func (ws *Wallets) AddWallet() string {
 	wallet := MakeWallet()
-	fmt.Println("Wallet added successfuly!")
-	address := fmt.Sprintf("%s\n", wallet.Address())
+	fmt.Println("Wallet added successfully!")
+	address := fmt.Sprintf("%s", wallet.Address())
 
 	ws.Wallets[address] = wallet
 	return address
@@ -56,13 +60,13 @@ func (ws *Wallets) LoadFile() error {
 	}
 	var wallets Wallets
 	fileContent, err := ioutil.ReadFile(walletsFile)
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error reading wallets file: %v", err)
 	}
 	gob.Register(elliptic.P256())
 	decoder := gob.NewDecoder(bytes.NewReader(fileContent))
 	err = decoder.Decode(&wallets)
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error decoding wallets file: %v", err)
 	}
 	ws.Wallets = wallets.Wallets
@@ -75,11 +79,11 @@ func (ws *Wallets) SaveFile() {
 	gob.Register(elliptic.P256())
 	encoder := gob.NewEncoder(&content)
 	err := encoder.Encode(ws)
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error encoding wallets: %v", err)
 	}
 	err = ioutil.WriteFile(walletsFile, content.Bytes(), 0644)
-	if (err != nil) {
+	if err != nil {
 		log.Panicf("error writing wallets file: %v", err)
 	}
 }
