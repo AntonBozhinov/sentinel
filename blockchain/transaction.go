@@ -22,10 +22,35 @@ type CoinTransaction struct {
 	Outputs []CoinTxOutput
 }
 
-
-func FirstCoinTransaction(to, data string) *CoinTransaction {
+func RewardTransaction(to, data string, amount int) *CoinTransaction {
 	if data == "" {
-		data = fmt.Sprintf("Coins to %s", to)
+		randData := make([]byte, 24)
+		_, err := rand.Read(randData)
+		if err != nil {
+			log.Panic(err)
+		}
+		data = fmt.Sprintf("%s", randData)
+	}
+	txIn := CoinTxInput{[]byte{}, -1,nil, []byte(data)}
+	txOut := NewCoinTxOutput(amount, to)
+
+	tx := CoinTransaction{
+		ID:      nil,
+		Inputs:  []CoinTxInput{txIn},
+		Outputs: []CoinTxOutput{*txOut},
+	}
+	tx.Hash()
+	return &tx
+}
+
+func GenesisTransaction(to, data string) *CoinTransaction {
+	if data == "" {
+		randData := make([]byte, 24)
+		_, err := rand.Read(randData)
+		if err != nil {
+			log.Panic(err)
+		}
+		data = fmt.Sprintf("%s", randData)
 	}
 	txIn := CoinTxInput{[]byte{}, -1,nil, []byte(data)}
 	txOut := NewCoinTxOutput(intsets.MaxInt - 1, to)
@@ -35,7 +60,7 @@ func FirstCoinTransaction(to, data string) *CoinTransaction {
 		Inputs:  []CoinTxInput{txIn},
 		Outputs: []CoinTxOutput{*txOut},
 	}
-	tx.SetID()
+	tx.Hash()
 	return &tx
 }
 
@@ -57,19 +82,6 @@ func (txn *CoinTransaction) Hash() []byte {
 	return hash[:]
 }
 
-
-
-func (txn *CoinTransaction) SetID() {
-	var encoded bytes.Buffer
-	var hash [32]byte
-	encode := gob.NewEncoder(&encoded)
-	err := encode.Encode(txn)
-	if err != nil {
-		log.Fatalf("error encoding transaction id: %v", err)
-	}
-	hash = sha256.Sum256(encoded.Bytes())
-	txn.ID = hash[:]
-}
 
 func (txn *CoinTransaction) IsCoinTransaction() bool {
 	return len(txn.Inputs) == 1 && len(txn.Inputs[0].ID) == 0 && txn.Inputs[0].Out == -1

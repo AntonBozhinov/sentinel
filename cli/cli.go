@@ -97,7 +97,9 @@ func (cli *CommandLine) send(from, to string, amount int) {
 	UTXOSet := blockchain.UTXOSet{BlockChain: chain}
 
 	tx := blockchain.NewTransaction(from , to, amount, &UTXOSet)
-	block := chain.AddBlock([]*blockchain.CoinTransaction{tx})
+	// TODO: calculate the amount of the reward dynamically based on time spent mining
+	rTx := blockchain.RewardTransaction(from, "", 10)
+	block := chain.AddBlock([]*blockchain.CoinTransaction{rTx, tx})
 	UTXOSet.Update(block)
 	fmt.Println("Success!")
 }

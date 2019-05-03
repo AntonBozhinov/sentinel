@@ -10,6 +10,8 @@ import (
 	"math/big"
 )
 
+
+// TODO: difficulty must be set dynamic based on time to mine a block
 const Difficulty = 18
 
 type ProofOfWork struct {

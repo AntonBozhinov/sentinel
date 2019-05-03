@@ -169,7 +169,7 @@ func InitBlockChain(address string) *BlockChain {
 	}
 
 	err = db.Update(func(txn *badger.Txn) error {
-		cbtx := FirstCoinTransaction(address, genesisData)
+		cbtx := GenesisTransaction(address, genesisData)
 		genesis := Genesis(cbtx)
 		fmt.Println("Genesis created")
 		err = txn.Set(genesis.Hash, genesis.Serialize())
